@@ -9,8 +9,24 @@ from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QLineEdi
 import ctypes # mostrar o icone 
 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("geotemp.v1")# faz conq o windows identifique como um app isolado e nao mais um codigo do python
 
-from PyQt5.QtCore import Qt, QRegularExpression # validadores basicamente cria uma regra e quem vai usart ela  
+from PyQt5.QtCore import Qt, QRegularExpression, QObject, pyqtSlot, pyqtSignal, QUrl # validadores basicamente cria uma regra e quem vai usart ela  
 from PyQt5.QtGui import  QRegularExpressionValidator,QIcon
+
+# --- Mapa interativo (precisa de: pip install PyQtWebEngine) ---
+from PyQt5.QtWebEngineWidgets import QWebEngineView
+from PyQt5.QtWebChannel import QWebChannel
+
+
+class MapBridge(QObject):
+    """ponte entre o javascript do mapa (leaflet) e o python
+       quando o usuario clica no mapa, o js chama enviarCoordenadas(lat, lon)
+       e isso dispara o sinal coordenadasClicadas, que o python escuta"""
+
+    coordenadasClicadas = pyqtSignal(float, float)
+
+    @pyqtSlot(float, float)
+    def enviarCoordenadas(self, lat, lon):
+        self.coordenadasClicadas.emit(lat, lon)
 
 load_dotenv() # cofre 
 chave_da_api = os.getenv("API_KEY") # quem vai usar a chave 
@@ -115,25 +131,36 @@ def previsao5D():
         except Exception as e:
             QMessageBox.critical(janela, "Erro", f"Falha na conexão: {str(e)}")
 
-def tempAtual():
+def tempAtual(lat=None, lon=None, nomeLocal=None):
     """pega o valor do cmbo box e deixa em 2 variaveis uma para servir como parametro e outra pra setar no front 
      pega a entrada q vai vir do valida campo 
      se o retorno nao for nada ele retorna pro inicio 
      ou pega a entrada (cidade) e converte pra lat e lon 
      e depis envia como paramentro 
-     se der  certo ele vai e informa a requisiçao para o usuario """
+     se der  certo ele vai e informa a requisiçao para o usuario
+
+     lat/lon/nomeLocal: quando o clima e pedido a partir de um clique no mapa,
+     esses valores ja chegam prontos (ver cliqueNoMapa) e a busca por texto e pulada"""
 
     unitemp, simbolo = validabox(tipoTemp.currentText()) 
 
-    # 2. Pega o que o usuário digitou (Cidade ou CEP)
-    entrada = validaCampo()
-
-    if entrada == None:
-        return
+    if lat is not None and lon is not None:
+        entrada = nomeLocal or "Local selecionado"
     else:
+        # 2. Pega o que o usuário digitou (Cidade ou CEP)
+        entrada = validaCampo()
+
+        if entrada == None:
+            return
 
         lat,lon = geoLocaliza(entrada)
-        
+
+        if lat is None or lon is None:
+            QMessageBox.critical(janela, "Erro", "Não foi possível localizar essa cidade.")
+            return
+
+    # a partir daqui, lat/lon ja estao definidos (por texto ou por clique no mapa)
+    if lat is not None and lon is not None:
         url = "https://api.openweathermap.org/data/2.5/weather"
         params = {
             "lat": lat,
@@ -162,7 +189,7 @@ def tempAtual():
                 label_vento.setText(f"🌬️ Vento: {vento} m/s")
                 lblLatValue.setText(f"LAT: {lat}")
                 lblLonValue.setText(f"LON: {lon}")
-                lblCidadeConfirmada.setText("SINAL OK")
+                lblCidadeConfirmada.setText(f"SINAL OK — {entrada}")
 
             elif resposta.status_code == 404 or resposta.status_code == 400 :
                 QMessageBox.warning(janela, "Erro", "Cidade não encontrada na base de dados de clima.")
@@ -413,6 +440,47 @@ def geoLocaliza(cidade):
         return None, None
 
 
+def geoReversa(lat, lon):
+    """faz o caminho contrario do geoLocaliza: recebe lat e lon (ex: clique no mapa)
+       e devolve o nome do local mais proximo, usando a mesma api de geocoding"""
+
+    url = "http://api.openweathermap.org/geo/1.0/reverse"
+
+    parametros = {
+        "lat": lat,
+        "lon": lon,
+        "limit": 1,
+        "appid": chave_da_api
+    }
+
+    try:
+        resposta = requests.get(url, params=parametros)
+
+        if resposta.status_code == 200:
+            dados = resposta.json()
+            if dados:
+                nome = dados[0].get("name", "Local selecionado")
+                estado = dados[0].get("state", "")
+                pais = dados[0].get("country", "")
+                lblEstadoPais.setText(f"{estado} \n {pais}")
+                return nome
+        return "Local selecionado"
+
+    except Exception:
+        return "Local selecionado"
+
+
+def cliqueNoMapa(lat, lon):
+    """chamado quando o sinal coordenadasClicadas dispara (usuario clicou no mapa)
+       ja tem lat/lon prontos, entao so precisa buscar o nome do local
+       e disparar a busca do clima atual direto, sem passar pela caixa de texto"""
+
+    nomeLocal = geoReversa(lat, lon)
+    caixaTextoPesquisaCidade.setText(nomeLocal)
+    caixaTextoPesquisaZip.clear()
+    tempAtual(lat=lat, lon=lon, nomeLocal=nomeLocal)
+
+
 regraCidade = QRegularExpression(r"^[A-Za-zÀ-ÿ\s]+$") 
 validaCidade = QRegularExpressionValidator(regraCidade)
 
@@ -533,9 +601,65 @@ painel_esquerdo.addWidget(frame_cidade)
 painel_esquerdo.addStretch()
 
 # --- CENTRO (MAPA) ---
-area_mapa = QLabel("MAPA MUNDI\n(Espaço para Visualização)")
-area_mapa.setStyleSheet("background-color: #2E2E3E; border: 2px solid #00FFFF; border-radius: 15px;")
-area_mapa.setAlignment(Qt.AlignCenter)
+# mapa interativo adicionado com ajuda de IA
+# leaflet rodando dentro de um QWebEngineView
+# ao clicar em qualquer ponto, o javascript avisa o python (via QWebChannel)
+# com a lat/lon do clique, e o python busca a temperatura daquele ponto
+
+html_mapa = """
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+<style>
+    html, body, #map { height: 100%; margin: 0; padding: 0; background:#1E1E2F; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+    var map = L.map('map', { worldCopyJump: true }).setView([-14.2, -51.9], 4);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors',
+        maxZoom: 18
+    }).addTo(map);
+
+    var marcador = null;
+    var ponte = null;
+
+    new QWebChannel(qt.webChannelTransport, function(channel) {
+        ponte = channel.objects.bridge;
+    });
+
+    map.on('click', function(evento) {
+        var lat = evento.latlng.lat;
+        var lon = evento.latlng.lng;
+
+        if (marcador) { map.removeLayer(marcador); }
+        marcador = L.marker([lat, lon]).addTo(map);
+
+        if (ponte) { ponte.enviarCoordenadas(lat, lon); }
+    });
+</script>
+</body>
+</html>
+"""
+
+area_mapa = QWebEngineView()
+area_mapa.setStyleSheet("border: 2px solid #00FFFF; border-radius: 15px;")
+
+canalMapa = QWebChannel()
+bridgeMapa = MapBridge()
+canalMapa.registerObject("bridge", bridgeMapa)
+area_mapa.page().setWebChannel(canalMapa)
+area_mapa.setHtml(html_mapa, baseUrl=QUrl("https://localhost/"))
+
+# quando o js emitir as coordenadas do clique, chama cliqueNoMapa
+bridgeMapa.coordenadasClicadas.connect(cliqueNoMapa)
 
 # ---------------- Painel direito (Onde o Clima brilha) ----------------
 painel_direito = QVBoxLayout()
