@@ -4,9 +4,9 @@
 
 # 🌍 GeoTemp — Clima em Tempo Real
 
-Aplicação desktop dark com interface estilo painel de controle que exibe temperatura atual, previsão para 24 horas e previsão semanal de qualquer cidade. A busca pode ser feita por nome da cidade ou CEP, com conversão automática de localidade via API ViaCEP.
+Aplicação desktop dark com interface estilo painel de controle que exibe temperatura atual, previsão para 24 horas e previsão semanal de qualquer cidade. A busca pode ser feita por nome da cidade, CEP, ou clicando diretamente no mapa interativo.
 
-> 🚧 Projeto em andamento — funcionalidades principais implementadas, melhorias visuais e mapa em desenvolvimento.
+> 🚧 Projeto em andamento — funcionalidades principais implementadas, mapa interativo adicionado, melhorias visuais em desenvolvimento.
 
 ---
 
@@ -18,19 +18,37 @@ Aplicação desktop dark com interface estilo painel de controle que exibe tempe
 | Previsão 24 horas | Tabela com intervalos de 3 horas mostrando temp, clima e vento |
 | Previsão 5 dias | Relatório com mínima e máxima por dia |
 | Busca por cidade ou CEP | Aceita nome da cidade ou CEP — converte automaticamente via ViaCEP |
+| **Mapa interativo** | Clique em qualquer ponto do mapa (Leaflet) para buscar a temperatura daquele local automaticamente |
 | Validação dupla | Se cidade e CEP forem informados, verifica se o CEP pertence àquela cidade |
 | Unidade de temperatura | Celsius, Fahrenheit ou Kelvin — selecionável na interface |
 | Telemetria de posição | Exibe latitude e longitude da cidade buscada |
+
+<p align="center">
+  <img src="assets/screenshot1.png" width="45%" alt="Tela principal do GeoTemp" />
+  <img src="assets/screenshot2.png" width="45%" alt="Mapa interativo do GeoTemp" />
+</p>
 
 ---
 
 ## 🛠️ Tecnologias
 
 - Linguagem: **Python 3**
-- Interface: **PyQt5**
-- APIs: **OpenWeatherMap** (clima e geolocalização) · **ViaCEP** (conversão de CEP)
+- Interface: **PyQt5** + **PyQtWebEngine** (mapa interativo)
+- Mapa: **Leaflet.js** rodando dentro de um `QWebEngineView`, comunicando com o Python via `QWebChannel`
+- APIs: **OpenWeatherMap** (clima, geolocalização e geolocalização reversa) · **ViaCEP** (conversão de CEP)
 - Segurança: **.env** para proteger a chave da API (primeira vez usando variáveis de ambiente)
 - Controle de versão: **.gitignore** configurado para não expor a chave no GitHub
+
+---
+
+## 🗺️ Mapa interativo
+
+O painel central agora exibe um mapa mundial (OpenStreetMap via Leaflet). Ao clicar em qualquer ponto:
+
+1. O JavaScript do mapa captura a latitude e longitude do clique
+2. Essas coordenadas são enviadas ao Python através de um `QWebChannel`
+3. O app faz uma geolocalização reversa para descobrir o nome do local
+4. A temperatura atual daquele ponto é buscada e exibida automaticamente
 
 ---
 
@@ -64,7 +82,7 @@ API_KEY=sua_chave_aqui
 
 ### 1. Instale as dependências
 ```bash
-pip install PyQt5 requests python-dotenv
+pip install PyQt5 PyQtWebEngine requests python-dotenv
 ```
 
 ### 2. Configure o .env (veja acima)
@@ -91,7 +109,7 @@ cd GeoTemp
 
 ### 3. Instale as dependências
 ```bash
-pip install PyQt5 requests python-dotenv
+pip install PyQt5 PyQtWebEngine requests python-dotenv
 ```
 
 ### 4. Configure o .env e execute
