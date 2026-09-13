@@ -24,8 +24,8 @@ Aplicação desktop dark com interface estilo painel de controle que exibe tempe
 | Telemetria de posição | Exibe latitude e longitude da cidade buscada |
 
 <p align="center">
-  <img src="assets/Captura_de_tela_2026-09-12_232154.png" width="45%" alt="Tela principal do GeoTemp com o mapa interativo" />
-  <img src="assets/Captura_de_tela_2026-09-12_232212.png" width="45%" alt="Mapa mundial em tela cheia no GeoTemp" />
+  <img src="Captura_de_tela_2026-09-12_232154.png" width="45%" alt="Tela principal do GeoTemp com o mapa interativo" />
+  <img src="Captura_de_tela_2026-09-12_232212.png" width="45%" alt="Mapa mundial em tela cheia no GeoTemp" />
 </p>
 
 ---
